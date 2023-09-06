@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Transcription</title>
+</head>
+<body>
+    <h1>Audio Transcription</h1>
+    <input type="file" id="fileInput">
+    <button id="transcribeButton">Transcribe</button>
+
+    <script>
+        document.getElementById("transcribeButton").addEventListener("click", function () {
+            var myHeaders = new Headers();
+            myHeaders.append("model", "whisper-1");
+            myHeaders.append("Authorization", "Bearer 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");
+
+            var fileInput = document.getElementById("fileInput");
+            var formdata = new FormData();
+            formdata.append("model", "whisper-1");
+            console.log(fileInput.files[0])
+            formdata.append("file", fileInput.files[0]);
+
+            var requestOptions = {
+                method: 'POST',
+                headers: myHeaders,
+                body: formdata,
+                redirect: 'follow'
+            };
+
+            fetch("https://api.openai.com/v1/audio/transcriptions", requestOptions)
+                .then(response => response.text())
+                .then(result => console.log(result))
+                .catch(error => console.log('error', error));
+        });
+    </script>
+</body>
+</html>
