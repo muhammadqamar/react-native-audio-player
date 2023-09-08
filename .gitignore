@@ -32,6 +32,15 @@ local.properties
 *.hprof
 .cxx/
 
+# misc
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env
+
+package-lock.json
+
 # node.js
 #
 node_modules/

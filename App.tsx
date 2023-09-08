@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  ScrollView,
   View,
 } from 'react-native';
 import {Buffer} from 'buffer';
@@ -32,12 +33,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   titleTxt: {
-    marginTop: 100,
+    marginTop: 50,
     color: 'white',
     fontSize: 28,
   },
   txtRecordCounter: {
-    marginTop: 32,
+    marginTop: 20,
     color: 'white',
     fontSize: 20,
     textAlignVertical: 'center',
@@ -57,8 +58,8 @@ const styles = StyleSheet.create({
   },
   recordBtnWrapper: {
     flex: 1,
-    flexDirection:'row',
-    marginTop:20
+    flexDirection: 'row',
+    marginTop: 20,
   },
 
   final: {
@@ -68,8 +69,40 @@ const styles = StyleSheet.create({
     marginTop: 22,
     padding: 10,
   },
+  chatContainer: {
+    // overflow: 'hidden',
+    // flex: 1,
+    flexDirection: 'column',
+    // justifyContent: 'space-between',
+    padding: 5,
+    // backgroundColor: '#808080',
+    width: '100%',
+    height: '65%',
+  },
+  personContainer: {
+    backgroundColor: '#e0e0e0',
+    padding: 10,
+    borderRadius: 8,
+    marginHorizontal: 5,
+    marginVertical: 8,
+  },
+
+  person1Text: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'blue',
+    // justifyContent: 'flex-end'
+  },
+  person2Text: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'green',
+  },
+  scrollViewContent: {
+    padding: 16,
+  },
 });
-const ASSEMBLYAI_API_KEY = 'a2bf8820eed141afac65ef44493a6657';
+// const ASSEMBLYAI_API_KEY = 'a2bf8820eed141afac65ef44493a6657';
 
 const screenWidth = Dimensions.get('screen').width;
 const dirs = RNFetchBlob.fs.dirs;
@@ -81,6 +114,18 @@ const Page = () => {
   const [finalText, setFinalText] = useState();
   const [loader, setLoader] = useState(false);
   const [audioRecorderPlayer] = useState(new AudioRecorderPlayer());
+  const openAI = process.env.REACT_APP_OPENAI_KEY;
+  const conqui = process.env.REACT_APP_COQUI_KEY;
+  const firstText = [
+    'Hello, how are you?',
+    "I'm doing great, thanks for asking!",
+    "Let's catch up soon.",
+  ];
+  const secondText = [
+    "Hey, I'm good. How about you?",
+    "I'm good too, thanks!",
+    "Sure, let's plan a meetup.",
+  ];
   const [path, setPath] = useState(
     Platform.select({
       ios: undefined,
@@ -101,7 +146,7 @@ const Page = () => {
 
   const onStartRecord = async () => {
     setFinalAudio();
-    setFinalText()
+    setFinalText();
     if (Platform.OS === 'android') {
       try {
         const grants = await PermissionsAndroid.requestMultiple([
@@ -162,16 +207,13 @@ const Page = () => {
     if (transcription.text) {
       const myHeaders = new Headers();
       myHeaders.append('Content-Type', 'application/json');
-      myHeaders.append(
-        'Authorization',
-        'Bearer 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',
-      );
+      myHeaders.append('Authorization', `Bearer ${openAI}`);
       const raw = JSON.stringify({
         model: 'gpt-3.5-turbo',
         messages: [
           {
             role: 'system',
-            content: `${transcription.text}. please answer should be less then 500 chracters and as short as possible. thanks `,
+            content: `${transcription.text}. please answer should be less then 500 characters and as short as possible. thanks `,
           },
         ],
       });
@@ -189,10 +231,7 @@ const Page = () => {
           if (JSON.parse(result).choices?.length) {
             const myHeaders = new Headers();
             myHeaders.append('Content-Type', 'application/json');
-            myHeaders.append(
-              'Authorization',
-              'Bearer LnxsZebbxZ86E6qjA4ME64cuXQA6nIRywAwMoBLQo3W2LJnhh3V8ImR9wCwCNKeR',
-            );
+            myHeaders.append('Authorization', `Bearer ${conqui}`);
 
             fetch('https://app.coqui.ai/api/v2/samples', {
               method: 'POST',
@@ -227,6 +266,16 @@ const Page = () => {
       console.error('Error playing audio:', error);
     }
   };
+  const personContainers = Array.from({length: 20}, (item, index) => (
+    <View key={index}>
+      <Text style={styles.person1Text}>
+        {firstText[index % firstText.length]}
+      </Text>
+      <Text style={styles.person2Text}>
+        {secondText[index % secondText.length]}
+      </Text>
+    </View>
+  ));
 
   return (
     <SafeAreaView style={styles.container}>
@@ -236,34 +285,36 @@ const Page = () => {
       <View style={styles.recordBtnWrapper}>
         <Button
           style={styles.btn}
-          onPress={onStartRecord}
+          // onPress={onStartRecord}
           textStyle={styles.txt}>
           Record
         </Button>
 
         <Button
           style={[styles.btn, {marginLeft: 12}]}
-          onPress={onStopRecord}
-          textStyle={styles.txt}
-
-          >
+          // onPress={onStopRecord}
+          textStyle={styles.txt}>
           Stop
         </Button>
-        {finalAudio &&
-        <Button
-          textStyle={styles.txt}
-          style={[styles.btn, {marginLeft: 12}]}
-          onPress={playAudio}>
-          Play Audio
-        </Button>
-        }
-        </View >
-        {!!loader && <Text>loading ...</Text>}
-        <DelayedText
-          text={finalText?.choices?.[0].message.content}
-          delay={50}
-        />
+        {finalAudio && (
+          <Button
+            textStyle={styles.txt}
+            style={[styles.btn, {marginLeft: 12}]}
+            // onPress={playAudio}
+          >
+            Play Audio
+          </Button>
+        )}
+      </View>
 
+      <View style={styles.chatContainer}>
+        <ScrollView style={styles.scrollViewContent}>
+          {personContainers}
+        </ScrollView>
+      </View>
+
+      {!!loader && <Text>loading ...</Text>}
+      <DelayedText text={finalText?.choices?.[0].message.content} delay={50} />
     </SafeAreaView>
   );
 };
