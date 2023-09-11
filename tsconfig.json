@@ -22,13 +22,12 @@
     "noImplicitAny": false,
     "strict": true,
     "strictNullChecks": true,
-    "suppressImplicitAnyIndexErrors": true,
     "declaration": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "esModuleInterop": true,
     "noUnusedLocals": false,
-    "types": ["node","jest"],
+    "types": ["node","jest","@env"],
     "typeRoots": ["./types", "./node_modules/@types"]
   },
   "exclude": [

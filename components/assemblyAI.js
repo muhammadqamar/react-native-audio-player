@@ -1,8 +1,7 @@
 import axios from 'axios';
-
-const apiKey = process.env.REACT_APP_ASSEMBLYAI_API_KEY
-
-async function transcribeAudioOrVideo(fileUri) {
+import {REACT_APP_ASSEMBLY_API_KEY} from '@env';
+async function transcribeAudioOrVideo(fileUri, code) {
+  console.log('assembly', REACT_APP_ASSEMBLY_API_KEY)
   try {
     const formData = new FormData();
     formData.append('file', {
@@ -16,28 +15,31 @@ async function transcribeAudioOrVideo(fileUri) {
       formData,
       {
         headers: {
-          authorization: apiKey,
+          authorization: REACT_APP_ASSEMBLY_API_KEY,
           'content-type': 'multipart/form-data',
         },
       },
     );
-    console.log(response);
+
     const {upload_url} = response.data;
 
     // Once the file is uploaded, you can create a transcription job
     const transcriptionResponse = await axios.post(
       'https://api.assemblyai.com/v2/transcript',
       {
-        audio_url: upload_url,
+        audio_url:
+          upload_url ||
+          'https://coqui-prod-creator-app-synthesized-samples.s3.amazonaws.com/editor_takes/8ee84cdbf0a20450e53600621e6c0b3d7c77211567507031c5dd7b70b6594197.wav',
+        language_code: code,
       },
       {
         headers: {
-          authorization: apiKey,
+          authorization: REACT_APP_ASSEMBLY_API_KEY,
           'content-type': 'application/json',
         },
       },
     );
-    console.log(transcriptionResponse);
+    console.log(transcriptionResponse?.data.id);
     const {id} = transcriptionResponse.data;
 
     // Now, you can periodically check the transcription status or retrieve the result
@@ -49,7 +51,7 @@ async function transcribeAudioOrVideo(fileUri) {
       // Send a GET request to the polling endpoint to retrieve the status of the transcript
       const pollingResponse = await fetch(pollingEndpoint, {
         headers: {
-          authorization: apiKey,
+          authorization: REACT_APP_ASSEMBLY_API_KEY,
           'content-type': 'application/json',
         },
       });
@@ -65,7 +67,7 @@ async function transcribeAudioOrVideo(fileUri) {
       }
       // If the transcription is still in progress, wait for a few seconds before polling again
       else {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
   } catch (error) {

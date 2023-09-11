@@ -1,16 +1,15 @@
 import React, {useState, useEffect} from 'react';
 import {
-  Dimensions,
   PermissionsAndroid,
   Platform,
   SafeAreaView,
-  StyleSheet,
   Text,
-  TouchableOpacity,
+  StyleSheet,
   ScrollView,
   View,
+  TouchableOpacity,
 } from 'react-native';
-import {Buffer} from 'buffer';
+
 import AudioRecorderPlayer, {
   AVEncoderAudioQualityIOSType,
   AVEncodingOption,
@@ -18,13 +17,315 @@ import AudioRecorderPlayer, {
   AudioSourceAndroidType,
   OutputFormatAndroidType,
 } from 'react-native-audio-recorder-player';
-// import RNFetchBlob from 'rn-fetch-blob';
-import axios from 'axios';
 import Button from './components/uis/Button';
 import RNFetchBlob from 'rn-fetch-blob';
-import RNFS from 'react-native-fs';
-const API_ENDPOINT = 'https://api.openai.com/v1/audio/transcriptions'; // Replace with your API endpoint
+import Langdropdown from './components/languageSelect';
 import {transcribeAudioOrVideo} from './components/assemblyAI';
+
+import {REACT_APP_OPENAI_KEY, REACT_APP_COQUI_KEY} from '@env';
+
+// const ASSEMBLYAI_API_KEY = 'a2bf8820eed141afac65ef44493a6657';
+interface Coverstation {
+  id: any;
+  text: string;
+  audio?: string;
+}
+
+const dirs = RNFetchBlob.fs.dirs;
+const Page = () => {
+  const [recordTime, setRecordTime] = useState('00:00:00');
+  const [activeLanguage, setActiveLanguage] = useState<any>('');
+  const [activeDefaultLang, setActiveDefaultLang] = useState();
+  const [userChat, setUserChat] = useState<Coverstation[]>([]);
+  const [aiChat, setAiChat] = useState<Coverstation[]>([]);
+  const [userText, setUserText] = useState<string>('');
+  const [aiText, setAiText] = useState<string>('');
+  const [aiVoice, setAiVoice] = useState();
+  const [activeSession, setActiveSession] = useState<number>();
+  const [audioRecorderPlayer] = useState(new AudioRecorderPlayer());
+
+  useEffect(() => {
+    audioRecorderPlayer.setSubscriptionDuration(0.1);
+  }, []);
+
+  const onStartRecord = async () => {
+    setActiveSession(Date.now());
+
+    if (Platform.OS === 'android') {
+      try {
+        const grants = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        ]);
+
+        console.log('write external storage', grants);
+
+        if (
+          grants['android.permission.WRITE_EXTERNAL_STORAGE'] ===
+            PermissionsAndroid.RESULTS.GRANTED &&
+          grants['android.permission.READ_EXTERNAL_STORAGE'] ===
+            PermissionsAndroid.RESULTS.GRANTED &&
+          grants['android.permission.RECORD_AUDIO'] ===
+            PermissionsAndroid.RESULTS.GRANTED
+        ) {
+          console.log('permissions granted');
+        } else {
+          console.log('All required permissions not granted');
+          return;
+        }
+      } catch (err) {
+        console.warn(err);
+        return;
+      }
+    }
+
+    const audioSet = {
+      AudioEncoderAndroid: AudioEncoderAndroidType.AAC,
+      AudioSourceAndroid: AudioSourceAndroidType.MIC,
+      AVEncoderAudioQualityKeyIOS: AVEncoderAudioQualityIOSType.high,
+      AVNumberOfChannelsKeyIOS: 2,
+      AVFormatIDKeyIOS: AVEncodingOption.aac,
+      OutputFormatAndroid: OutputFormatAndroidType.AAC_ADTS,
+    };
+
+    const path = Platform.select({
+      ios: `${Date.now()}.m4a`,
+
+      android: `${dirs.CacheDir}/${Date.now()}.mp3`,
+    });
+
+    const uri = await audioRecorderPlayer.startRecorder(path, audioSet);
+
+    audioRecorderPlayer.addRecordBackListener(e => {
+      setRecordTime(audioRecorderPlayer.mmssss(Math.floor(e.currentPosition)));
+    });
+
+    console.log(`uri: ${uri}`);
+  };
+
+  useEffect(() => {
+    setUserChat(
+      userChat.map(data => {
+        if (data.id === activeSession) {
+          return {
+            ...data,
+
+            text: userText,
+          };
+        } else {
+          return data;
+        }
+      }),
+    );
+  }, [userText]);
+  useEffect(() => {
+    console.log(aiText);
+    setAiChat(
+      aiChat.map(data => {
+        if (data.id === activeSession) {
+          return {
+            ...data,
+
+            text: aiText,
+          };
+        } else {
+          return data;
+        }
+      }),
+    );
+  }, [aiText]);
+
+  useEffect(() => {
+    console.log(aiVoice);
+    setAiChat(
+      aiChat.map(data => {
+        if (data.id === activeSession) {
+          return {
+            ...data,
+            audio: aiVoice,
+          };
+        } else {
+          return data;
+        }
+      }),
+    );
+  }, [aiVoice]);
+
+  // useEffect(() => {
+  //   console.log(userChat, aiChat);
+  // }, [userChat, aiChat]);
+  const onStopRecord = async () => {
+    const result = await audioRecorderPlayer.stopRecorder();
+    audioRecorderPlayer.removeRecordBackListener();
+
+    setUserChat([
+      ...userChat,
+      {
+        id: activeSession,
+        text: '',
+        audio: result,
+      },
+    ]);
+    setAiChat([
+      ...aiChat,
+      {
+        id: activeSession,
+        text: '',
+        audio: '',
+      },
+    ]);
+    const transcription = await transcribeAudioOrVideo(
+      result,
+      activeLanguage.code,
+    );
+
+    if (true) {
+      const ttl =
+        transcription.text ||
+        `Sorry, I tried my best to undertand but not able to trnslate. can you try once more with different sentence.`;
+
+      setUserText(ttl);
+
+      const myHeaders = new Headers();
+      myHeaders.append('Content-Type', 'application/json');
+      myHeaders.append('Authorization', `Bearer ${REACT_APP_OPENAI_KEY}`);
+      const raw = JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: `${ttl}. ${
+              transcription.text
+                ? 'please answer should be less then 500 characters and keep it short atleast 5 to 6 words minmum. thanks'
+                : `kindly translate this to ${activeDefaultLang}`
+            } `,
+          },
+        ],
+      });
+      const requestOptions = {
+        method: 'POST',
+        headers: myHeaders,
+        body: raw,
+        redirect: 'follow',
+      };
+
+      fetch('https://api.openai.com/v1/chat/completions', requestOptions)
+        .then(response => response.text())
+        .then(result => {
+          console.log(JSON.parse(result).choices?.[0].message.content);
+          setAiText(JSON.parse(result).choices?.[0].message.content);
+          if (JSON.parse(result).choices?.length) {
+            const myHeaders = new Headers();
+            myHeaders.append('Content-Type', 'application/json');
+            myHeaders.append('Authorization', `Bearer ${REACT_APP_COQUI_KEY}`);
+
+            fetch('https://app.coqui.ai/api/v2/samples', {
+              method: 'POST',
+              headers: myHeaders,
+              body: JSON.stringify({
+                voice_id: 'd2bd7ccb-1b65-4005-9578-32c4e02d8ddf',
+                text: JSON.parse(result).choices?.[0].message.content,
+              }),
+            })
+              .then(response => response.text())
+              .then(async result => {
+                // const downloadPath = await downloadFile(
+                //  JSON.parse(result).audio_url,
+                //);
+                //console.log(downloadPath);
+                //if (downloadPath) {
+                setAiVoice(JSON.parse(result).audio_url);
+                playAudio(JSON.parse(result).audio_url);
+                //}
+              })
+              .catch(error => console.log('error', error));
+          }
+        })
+        .catch(error => console.log('error', error));
+    }
+  };
+
+  const playAudio = async (finalAudio: any) => {
+    console.log(finalAudio);
+    try {
+      const audioInfo = await audioRecorderPlayer.startPlayer(finalAudio);
+      console.log('Audio Info:', audioInfo);
+    } catch (error) {
+      console.error('Error playing audio:', error);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.titleTxt}>AI Powered Snak</Text>
+      <View style={{flex: 1, flexDirection: 'row'}}>
+        <View>
+          <Text>Select Language:</Text>
+          <Langdropdown setActiveLanguage={setActiveLanguage} />
+        </View>
+
+        <View>
+          <Text>Select default Language:</Text>
+          <Langdropdown setActiveLanguage={setActiveDefaultLang} defaultLang />
+        </View>
+      </View>
+      <Text style={styles.txtRecordCounter}>{recordTime}</Text>
+
+      <View style={styles.recordBtnWrapper}>
+        <Button
+          style={styles.btn}
+          onPress={onStartRecord}
+          textStyle={styles.txt}
+          isDisabled={!activeLanguage}>
+          Record
+        </Button>
+
+        <Button
+          style={[styles.btn, {marginLeft: 12}]}
+          onPress={onStopRecord}
+          textStyle={styles.txt}>
+          Stop
+        </Button>
+      </View>
+
+      {/*
+      {!!loader && (
+        <View>
+          <ActivityIndicator size="small" color="#fff" />
+        </View>
+      )} */}
+
+      <ScrollView>
+        {userChat?.map((convo: Coverstation, index: number) => {
+          return (
+            <View key={index}>
+              <TouchableOpacity
+                onPress={() => {
+                  playAudio(convo.audio);
+                }}>
+                <Text style={{color: 'white', textAlign: 'left'}}>
+                  {convo.text || 'Typing...'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  playAudio(aiChat[index]?.audio);
+                }}>
+                <Text style={{color: 'red', textAlign: 'right'}}>
+                  {aiChat[index]?.text || 'Typing ...'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+export default Page;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -102,247 +403,3 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 });
-// const ASSEMBLYAI_API_KEY = 'a2bf8820eed141afac65ef44493a6657';
-
-const screenWidth = Dimensions.get('screen').width;
-const dirs = RNFetchBlob.fs.dirs;
-const Page = () => {
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [recordSecs, setRecordSecs] = useState(0);
-  const [recordTime, setRecordTime] = useState('00:00:00');
-  const [finalAudio, setFinalAudio] = useState();
-  const [finalText, setFinalText] = useState();
-  const [loader, setLoader] = useState(false);
-  const [audioRecorderPlayer] = useState(new AudioRecorderPlayer());
-  const openAI = process.env.REACT_APP_OPENAI_KEY;
-  const conqui = process.env.REACT_APP_COQUI_KEY;
-  const firstText = [
-    'Hello, how are you?',
-    "I'm doing great, thanks for asking!",
-    "Let's catch up soon.",
-  ];
-  const secondText = [
-    "Hey, I'm good. How about you?",
-    "I'm good too, thanks!",
-    "Sure, let's plan a meetup.",
-  ];
-  const [path, setPath] = useState(
-    Platform.select({
-      ios: undefined,
-      // android: undefined,
-      android: `${dirs.CacheDir}/hello.mp3`,
-    }),
-  );
-
-  useEffect(() => {
-    audioRecorderPlayer.setSubscriptionDuration(0.1);
-  }, []);
-
-  useEffect(() => {
-    if (finalAudio) {
-      playAudio();
-    }
-  }, [finalAudio]);
-
-  const onStartRecord = async () => {
-    setFinalAudio();
-    setFinalText();
-    if (Platform.OS === 'android') {
-      try {
-        const grants = await PermissionsAndroid.requestMultiple([
-          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-          PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        ]);
-
-        console.log('write external storage', grants);
-
-        if (
-          grants['android.permission.WRITE_EXTERNAL_STORAGE'] ===
-            PermissionsAndroid.RESULTS.GRANTED &&
-          grants['android.permission.READ_EXTERNAL_STORAGE'] ===
-            PermissionsAndroid.RESULTS.GRANTED &&
-          grants['android.permission.RECORD_AUDIO'] ===
-            PermissionsAndroid.RESULTS.GRANTED
-        ) {
-          console.log('permissions granted');
-        } else {
-          console.log('All required permissions not granted');
-          return;
-        }
-      } catch (err) {
-        console.warn(err);
-        return;
-      }
-    }
-
-    const audioSet = {
-      AudioEncoderAndroid: AudioEncoderAndroidType.AAC,
-      AudioSourceAndroid: AudioSourceAndroidType.MIC,
-      AVEncoderAudioQualityKeyIOS: AVEncoderAudioQualityIOSType.high,
-      AVNumberOfChannelsKeyIOS: 2,
-      AVFormatIDKeyIOS: AVEncodingOption.aac,
-      OutputFormatAndroid: OutputFormatAndroidType.AAC_ADTS,
-    };
-
-    console.log('audioSet', audioSet);
-
-    const uri = await audioRecorderPlayer.startRecorder(path, audioSet);
-
-    audioRecorderPlayer.addRecordBackListener(e => {
-      setRecordSecs(e.currentPosition);
-      setRecordTime(audioRecorderPlayer.mmssss(Math.floor(e.currentPosition)));
-    });
-
-    console.log(`uri: ${uri}`);
-  };
-
-  const onStopRecord = async () => {
-    const result = await audioRecorderPlayer.stopRecorder();
-    audioRecorderPlayer.removeRecordBackListener();
-    setRecordSecs(0);
-    setLoader(true);
-    const transcription = await transcribeAudioOrVideo(result);
-
-    if (transcription.text) {
-      const myHeaders = new Headers();
-      myHeaders.append('Content-Type', 'application/json');
-      myHeaders.append('Authorization', `Bearer ${openAI}`);
-      const raw = JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: `${transcription.text}. please answer should be less then 500 characters and as short as possible. thanks `,
-          },
-        ],
-      });
-      const requestOptions = {
-        method: 'POST',
-        headers: myHeaders,
-        body: raw,
-        redirect: 'follow',
-      };
-      console.log(transcription.text);
-      fetch('https://api.openai.com/v1/chat/completions', requestOptions)
-        .then(response => response.text())
-        .then(result => {
-          setFinalText(JSON.parse(result));
-          if (JSON.parse(result).choices?.length) {
-            const myHeaders = new Headers();
-            myHeaders.append('Content-Type', 'application/json');
-            myHeaders.append('Authorization', `Bearer ${conqui}`);
-
-            fetch('https://app.coqui.ai/api/v2/samples', {
-              method: 'POST',
-              headers: myHeaders,
-              body: JSON.stringify({
-                voice_id: 'd2bd7ccb-1b65-4005-9578-32c4e02d8ddf',
-                text: JSON.parse(result).choices?.[0].message.content,
-              }),
-            })
-              .then(response => response.text())
-              .then(result => {
-                setLoader(false);
-
-                setFinalAudio(JSON.parse(result));
-                // Handle the audio result as needed
-              })
-              .catch(error => console.log('error', error));
-          }
-        })
-        .catch(error => console.log('error', error));
-    }
-  };
-
-  const playAudio = async () => {
-    console.log(finalAudio);
-    try {
-      const audioInfo = await audioRecorderPlayer.startPlayer(
-        finalAudio?.audio_url,
-      );
-      console.log('Audio Info:', audioInfo);
-    } catch (error) {
-      console.error('Error playing audio:', error);
-    }
-  };
-  const personContainers = Array.from({length: 20}, (item, index) => (
-    <View key={index}>
-      <Text style={styles.person1Text}>
-        {firstText[index % firstText.length]}
-      </Text>
-      <Text style={styles.person2Text}>
-        {secondText[index % secondText.length]}
-      </Text>
-    </View>
-  ));
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.titleTxt}>AI Powered Snak</Text>
-      <Text style={styles.txtRecordCounter}>{recordTime}</Text>
-
-      <View style={styles.recordBtnWrapper}>
-        <Button
-          style={styles.btn}
-          // onPress={onStartRecord}
-          textStyle={styles.txt}>
-          Record
-        </Button>
-
-        <Button
-          style={[styles.btn, {marginLeft: 12}]}
-          // onPress={onStopRecord}
-          textStyle={styles.txt}>
-          Stop
-        </Button>
-        {finalAudio && (
-          <Button
-            textStyle={styles.txt}
-            style={[styles.btn, {marginLeft: 12}]}
-            // onPress={playAudio}
-          >
-            Play Audio
-          </Button>
-        )}
-      </View>
-
-      <View style={styles.chatContainer}>
-        <ScrollView style={styles.scrollViewContent}>
-          {personContainers}
-        </ScrollView>
-      </View>
-
-      {!!loader && <Text>loading ...</Text>}
-      <DelayedText text={finalText?.choices?.[0].message.content} delay={50} />
-    </SafeAreaView>
-  );
-};
-
-const DelayedText = ({text, delay}) => {
-  const [displayedText, setDisplayedText] = useState('');
-
-  // useEffect(() => {
-  //   let currentIndex = 0;
-  //   const intervalId = setInterval(() => {
-  //     if (currentIndex < text?.length) {
-  //       setDisplayedText((prevText) => prevText + text[currentIndex]);
-  //       currentIndex++;
-  //     } else {
-  //       clearInterval(intervalId);
-  //     }
-  //   }, .0000001);
-
-  //   return () => {
-  //     clearInterval(intervalId); // Clean up the interval on unmount
-  //   };
-  // }, [text, delay]);
-
-  return (
-    <View>
-      <Text style={styles.final}>{text}</Text>
-    </View>
-  );
-};
-
-export default Page;
